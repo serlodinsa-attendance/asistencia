@@ -1,0 +1,237 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Registro de Asistencia</title>
+  <style>
+    :root {
+      color-scheme: light;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      background: #0f172a;
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 20px;
+    }
+    .card {
+      background: #ffffff;
+      border-radius: 16px;
+      padding: 32px 24px;
+      max-width: 400px;
+      width: 100%;
+      box-shadow: 0 10px 40px rgba(0,0,0,0.3);
+      text-align: center;
+    }
+    h1 {
+      font-size: 20px;
+      margin: 0 0 4px;
+      color: #0f172a;
+    }
+    p.subtitle {
+      color: #64748b;
+      font-size: 14px;
+      margin: 0 0 24px;
+    }
+    label {
+      display: block;
+      text-align: left;
+      font-size: 13px;
+      font-weight: 600;
+      color: #334155;
+      margin-bottom: 6px;
+    }
+    input[type="text"] {
+      width: 100%;
+      padding: 14px;
+      font-size: 16px;
+      border: 1.5px solid #cbd5e1;
+      border-radius: 10px;
+      margin-bottom: 16px;
+      outline: none;
+    }
+    input[type="text"]:focus {
+      border-color: #2563eb;
+    }
+    button {
+      width: 100%;
+      padding: 14px;
+      font-size: 16px;
+      font-weight: 600;
+      color: #fff;
+      background: #2563eb;
+      border: none;
+      border-radius: 10px;
+      cursor: pointer;
+    }
+    button:disabled {
+      background: #93c5fd;
+      cursor: not-allowed;
+    }
+    .msg {
+      margin-top: 16px;
+      padding: 12px;
+      border-radius: 10px;
+      font-size: 14px;
+      display: none;
+    }
+    .msg.show { display: block; }
+    .msg.ok {
+      background: #dcfce7;
+      color: #166534;
+    }
+    .msg.err {
+      background: #fee2e2;
+      color: #991b1b;
+    }
+    .msg.info {
+      background: #e0f2fe;
+      color: #075985;
+    }
+    .spinner {
+      display: inline-block;
+      width: 16px;
+      height: 16px;
+      border: 2px solid rgba(255,255,255,0.5);
+      border-top-color: #fff;
+      border-radius: 50%;
+      animation: spin 0.7s linear infinite;
+      vertical-align: middle;
+      margin-right: 8px;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .icon {
+      font-size: 36px;
+      margin-bottom: 8px;
+    }
+  </style>
+<script>
+(function(){
+  var API = 'https://script.google.com/macros/s/AKfycbzAHX63o9edCN8VJkxQvwDdg5_qcV9lZW8a2AwjC4lcgyP4_KABmGj3_YUvaJQh_qygDw/exec';
+  function mk(ok, fail){
+    return new Proxy({}, { get: function(_, fn){
+      if (fn === 'withSuccessHandler') return function(f){ return mk(f, fail); };
+      if (fn === 'withFailureHandler') return function(f){ return mk(ok, f); };
+      return function(){
+        var args = [].slice.call(arguments);
+        fetch(API, { method: 'POST', body: JSON.stringify({ fn: fn, args: args }) })
+          .then(function(r){ return r.json(); })
+          .then(function(j){
+            if (j.error) { if (fail) fail({ message: j.error }); }
+            else if (ok) { ok(j.result); }
+          })
+          .catch(function(e){ if (fail) fail({ message: 'Sin conexión con el servidor (' + e.message + ')' }); });
+      };
+    }});
+  }
+  window.google = { script: { run: mk(null, null) } };
+})();
+</script>
+</head>
+<body>
+  <div class="card">
+    <div class="icon">🏢</div>
+    <h1>Registro de Asistencia</h1>
+    <p class="subtitle">Escribe tu nombre completo para marcar tu llegada</p>
+
+    <form id="form" onsubmit="return false;">
+      <label for="nombre">Nombre completo</label>
+      <input type="text" id="nombre" autocomplete="name" placeholder="Ej. Juan Pérez" autofocus>
+      <button type="submit" id="btn" onclick="marcar()">Marcar asistencia</button>
+    </form>
+
+    <div id="msg" class="msg"></div>
+  </div>
+
+  <script>
+    var btn = document.getElementById('btn');
+    var msg = document.getElementById('msg');
+    var nombreInput = document.getElementById('nombre');
+
+    function showMsg(text, type) {
+      msg.textContent = text;
+      msg.className = 'msg show ' + type;
+    }
+
+    function setLoading(loading, text) {
+      btn.disabled = loading;
+      btn.innerHTML = loading ? '<span class="spinner"></span>' + text : 'Marcar asistencia';
+    }
+
+    function dispositivo() {
+      try {
+        var d = localStorage.getItem('uma_dev');
+        if (!d) { d = Math.random().toString(36).slice(2) + Date.now().toString(36); localStorage.setItem('uma_dev', d); }
+        return d;
+      } catch (e) { return ''; }
+    }
+
+    function marcar() {
+      var nombre = nombreInput.value.trim();
+      if (!nombre) {
+        showMsg('Por favor escribe tu nombre completo.', 'err');
+        nombreInput.focus();
+        return;
+      }
+      if (nombre.length < 4 || nombre.indexOf(' ') === -1) {
+        showMsg('Escribe tu nombre completo (nombre y apellido).', 'err');
+        nombreInput.focus();
+        return;
+      }
+
+      msg.className = 'msg';
+      setLoading(true, 'Obteniendo tu ubicación...');
+
+      if (!navigator.geolocation) {
+        setLoading(false, '');
+        showMsg('Tu navegador no soporta ubicación GPS. Usa un teléfono con Chrome o Safari actualizado.', 'err');
+        return;
+      }
+
+      navigator.geolocation.getCurrentPosition(
+        function (pos) {
+          setLoading(true, 'Registrando...');
+          var lat = pos.coords.latitude;
+          var lon = pos.coords.longitude;
+          google.script.run
+            .withSuccessHandler(function (resp) {
+              setLoading(false, '');
+              if (resp.ok) {
+                showMsg('✅ ¡Listo, ' + resp.nombre + '! Asistencia registrada a las ' + resp.hora + '.', 'ok');
+                btn.disabled = true;
+                btn.textContent = 'Asistencia registrada';
+              } else {
+                showMsg(resp.error, 'err');
+              }
+            })
+            .withFailureHandler(function (err) {
+              setLoading(false, '');
+              showMsg('Ocurrió un error al guardar. Intenta de nuevo. (' + err.message + ')', 'err');
+            })
+            .registrarAsistencia(nombre, lat, lon, dispositivo());
+        },
+        function (err) {
+          setLoading(false, '');
+          var text = 'No se pudo obtener tu ubicación. ';
+          if (err.code === 1) {
+            text += 'Debes dar permiso de ubicación en tu navegador para poder registrar.';
+          } else {
+            text += 'Activa el GPS de tu teléfono e intenta de nuevo.';
+          }
+          showMsg(text, 'err');
+        },
+        { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 }
+      );
+    }
+
+    nombreInput.addEventListener('keydown', function (e) {
+      if (e.key === 'Enter') { marcar(); }
+    });
+  </script>
+</body>
+</html>
