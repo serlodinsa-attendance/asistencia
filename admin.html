@@ -1,0 +1,172 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Historial de Asistencia</title>
+<style>
+*{box-sizing:border-box}
+body{margin:0;font-family:-apple-system,Segoe UI,Roboto,Arial,sans-serif;background:#f1f5f9;color:#0f172a;padding:16px}
+h1{font-size:20px;margin:0 0 12px}
+.bar{background:#fff;border-radius:12px;padding:12px;display:flex;flex-wrap:wrap;gap:8px;align-items:end;box-shadow:0 1px 4px rgba(0,0,0,.08)}
+.bar label{font-size:12px;font-weight:600;color:#475569;display:block;margin-bottom:3px}
+input{padding:9px;border:1.5px solid #cbd5e1;border-radius:8px;font-size:14px}
+button{padding:9px 12px;border:none;border-radius:8px;background:#2563eb;color:#fff;font-weight:600;cursor:pointer}
+button.sec{background:#e2e8f0;color:#0f172a}
+.kpis{display:flex;gap:10px;margin:12px 0;flex-wrap:wrap}
+.kpi{background:#fff;border-radius:12px;padding:10px 16px;box-shadow:0 1px 4px rgba(0,0,0,.08)}
+.kpi b{font-size:22px;display:block}
+table{width:100%;border-collapse:collapse;background:#fff;border-radius:12px;overflow:hidden;box-shadow:0 1px 4px rgba(0,0,0,.08)}
+th,td{padding:9px 12px;text-align:left;font-size:14px;border-bottom:1px solid #e2e8f0}
+th{background:#0f172a;color:#fff;position:sticky;top:0}
+.wrap{max-height:65vh;overflow:auto;border-radius:12px}
+h2{font-size:15px;margin:16px 0 6px}
+.muted{color:#64748b;font-size:13px}
+</style>
+<script>
+(function(){
+  var API = 'https://script.google.com/macros/s/AKfycbzAHX63o9edCN8VJkxQvwDdg5_qcV9lZW8a2AwjC4lcgyP4_KABmGj3_YUvaJQh_qygDw/exec';
+  function mk(ok, fail){
+    return new Proxy({}, { get: function(_, fn){
+      if (fn === 'withSuccessHandler') return function(f){ return mk(f, fail); };
+      if (fn === 'withFailureHandler') return function(f){ return mk(ok, f); };
+      return function(){
+        var args = [].slice.call(arguments);
+        fetch(API, { method: 'POST', body: JSON.stringify({ fn: fn, args: args }) })
+          .then(function(r){ return r.json(); })
+          .then(function(j){
+            if (j.error) { if (fail) fail({ message: j.error }); }
+            else if (ok) { ok(j.result); }
+          })
+          .catch(function(e){ if (fail) fail({ message: 'Sin conexión con el servidor (' + e.message + ')' }); });
+      };
+    }});
+  }
+  window.google = { script: { run: mk(null, null) } };
+})();
+</script>
+</head>
+<body>
+<h1>Historial de Asistencia</h1>
+<div class="bar">
+  <div><label>Desde</label><input type="date" id="desde"></div>
+  <div><label>Hasta</label><input type="date" id="hasta"></div>
+  <div><label>Buscar nombre</label><input type="text" id="q" placeholder="Ej. Juan"></div>
+  <button onclick="rango('hoy')">Hoy</button>
+  <button onclick="rango('semana')">Esta semana</button>
+  <button onclick="rango('mes')">Este mes</button>
+  <button class="sec" onclick="rango('todo')">Todo</button>
+  <button class="sec" onclick="csv()">Descargar CSV</button>
+  <button style="background:#16a34a" onclick="abrir(0)">+ Agregar asistencia</button>
+</div>
+<div class="kpis">
+  <div class="kpi"><b id="kTotal">0</b>registros</div>
+  <div class="kpi"><b id="kPers">0</b>personas</div>
+  <div class="kpi"><b id="kDias">0</b>días</div>
+</div>
+<div id="alertas"></div>
+<h2>Resumen por persona</h2>
+<div class="wrap" style="max-height:30vh"><table id="resumen"></table></div>
+<h2>Detalle</h2>
+<div class="wrap"><table id="detalle"></table></div>
+<div id="modal" style="display:none;position:fixed;inset:0;background:rgba(15,23,42,.6);align-items:center;justify-content:center;padding:16px">
+  <div style="background:#fff;border-radius:14px;padding:20px;max-width:380px;width:100%">
+    <h2 id="mTitulo" style="margin-top:0"></h2>
+    <div id="mCampos">
+      <label class="muted">Fecha</label><input type="date" id="mFecha" style="width:100%;margin-bottom:8px">
+      <label class="muted">Hora (HH:MM:SS)</label><input type="text" id="mHora" style="width:100%;margin-bottom:8px">
+      <label class="muted">Nombre</label><input type="text" id="mNombre" style="width:100%;margin-bottom:8px">
+    </div>
+    <p id="mTexto" style="display:none"></p>
+    <p id="mMsg" style="color:#b91c1c;font-size:13px;min-height:16px"></p>
+    <div style="display:flex;gap:8px;justify-content:flex-end">
+      <button class="sec" onclick="cerrar()">Cancelar</button>
+      <button id="mOk" onclick="guardar()">Guardar</button>
+    </div>
+  </div>
+</div>
+<p class="muted">Para ver registros nuevos, recarga la página.</p>
+<script>
+var DATOS = [];
+var KEY = new URLSearchParams(location.search).get('key') || '';
+var modo = '', filaSel = 0;
+var $ = function(i){return document.getElementById(i)};
+function pad(n){return (n<10?'0':'')+n}
+function iso(d){return d.getFullYear()+'-'+pad(d.getMonth()+1)+'-'+pad(d.getDate())}
+function rango(t){
+  var h=new Date(), d=new Date();
+  if(t==='hoy'){$('desde').value=$('hasta').value=iso(h)}
+  else if(t==='semana'){var w=(h.getDay()+6)%7;d.setDate(h.getDate()-w);$('desde').value=iso(d);$('hasta').value=iso(h)}
+  else if(t==='mes'){$('desde').value=iso(new Date(h.getFullYear(),h.getMonth(),1));$('hasta').value=iso(h)}
+  else {$('desde').value='';$('hasta').value=''}
+  pintar();
+}
+var filtrado=[];
+function esc(s){return String(s).replace(/[&<>"]/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]})}
+function pintar(){
+  var d=$('desde').value,h=$('hasta').value,q=$('q').value.trim().toLowerCase();
+  filtrado=DATOS.filter(function(r){
+    return (!d||r[0]>=d)&&(!h||r[0]<=h)&&(!q||String(r[2]).toLowerCase().indexOf(q)>=0);
+  }).sort(function(a,b){return (b[0]+b[1]).localeCompare(a[0]+a[1])});
+  var per={},dias={};
+  filtrado.forEach(function(r){var k=r[2];per[k]=per[k]||{n:0,u:''};per[k].n++;if(r[0]>per[k].u)per[k].u=r[0];dias[r[0]]=1});
+  $('kTotal').textContent=filtrado.length;
+  $('kPers').textContent=Object.keys(per).length;
+  $('kDias').textContent=Object.keys(dias).length;
+  var rs='<tr><th>Nombre</th><th>Días asistidos</th><th>Última</th></tr>';
+  Object.keys(per).sort().forEach(function(k){rs+='<tr><td>'+esc(k)+'</td><td>'+per[k].n+'</td><td>'+per[k].u+'</td></tr>'});
+  $('resumen').innerHTML=rs;
+  var gp={};
+  filtrado.forEach(function(r){ if(r[5]){var k=r[0]+'|'+r[5]; gp[k]=gp[k]||{}; gp[k][String(r[2]).toLowerCase()]=r[2];} });
+  var dup={}, ah='';
+  Object.keys(gp).forEach(function(k){ var ns=Object.keys(gp[k]); if(ns.length>1){ dup[k]=1; ah+='<div>⚠ '+k.split('|')[0]+': un mismo celular marcó para '+ns.map(function(n){return esc(gp[k][n])}).join(', ')+'</div>'; } });
+  $('alertas').innerHTML = ah ? '<div style="background:#fee2e2;color:#991b1b;border-radius:12px;padding:10px 14px;margin:12px 0;font-size:14px"><b>Alertas de posible suplantación</b>'+ah+'</div>' : '';
+  var ds='<tr><th>Fecha</th><th>Hora</th><th>Nombre</th><th>Dist. (m)</th><th>Dispositivo</th><th></th></tr>';
+  filtrado.forEach(function(r){ds+='<tr><td>'+r[0]+'</td><td>'+r[1]+'</td><td'+(dup[r[0]+'|'+r[5]]?' style="background:#fee2e2" title="Mismo celular marcó para varias personas"':'')+'>'+(dup[r[0]+'|'+r[5]]?'⚠ ':'')+esc(r[2])+'</td><td>'+r[3]+'</td><td style="font-family:monospace">'+(r[5]?esc(String(r[5]).slice(0,6)):'—')+'</td><td style="white-space:nowrap"><button class="sec" onclick="abrir('+r[4]+')">Editar</button> <button style="background:#dc2626" onclick="borrar('+r[4]+')">Borrar</button></td></tr>'});
+  $('detalle').innerHTML=ds;
+}
+function csv(){
+  var t='Fecha,Hora,Nombre,Distancia,Dispositivo\n'+filtrado.map(function(r){return [r[0],r[1],'"'+String(r[2]).replace(/"/g,'""')+'"',r[3],r[5]||''].join(',')}).join('\n');
+  var a=document.createElement('a');
+  a.href='data:text/csv;charset=utf-8,'+encodeURIComponent('﻿'+t);
+  a.download='asistencia.csv';a.click();
+}
+function buscar(f){return DATOS.filter(function(x){return x[4]===f})[0]}
+function abrir(f){
+  modo = f ? 'editar' : 'agregar'; filaSel = f;
+  var r = f ? buscar(f) : null;
+  $('mTitulo').textContent = f ? 'Editar asistencia' : 'Agregar asistencia';
+  $('mFecha').value = r ? r[0] : iso(new Date());
+  $('mHora').value = r ? r[1] : '08:00:00';
+  $('mNombre').value = r ? r[2] : '';
+  $('mCampos').style.display = 'block'; $('mTexto').style.display = 'none';
+  $('mOk').textContent = 'Guardar'; $('mOk').style.background = '#2563eb';
+  $('mMsg').textContent = ''; $('modal').style.display = 'flex';
+}
+function borrar(f){
+  var r = buscar(f); modo = 'borrar'; filaSel = f;
+  $('mTitulo').textContent = 'Borrar asistencia';
+  $('mCampos').style.display = 'none'; $('mTexto').style.display = 'block';
+  $('mTexto').textContent = '¿Borrar la asistencia de ' + r[2] + ' del ' + r[0] + ' ' + r[1] + '? No se puede deshacer.';
+  $('mOk').textContent = 'Sí, borrar'; $('mOk').style.background = '#dc2626';
+  $('mMsg').textContent = ''; $('modal').style.display = 'flex';
+}
+function cerrar(){ $('modal').style.display = 'none'; }
+function guardar(){
+  var ok = $('mOk'); ok.disabled = true; $('mMsg').textContent = 'Guardando...';
+  var run = google.script.run
+    .withSuccessHandler(function(nuevos){ DATOS = nuevos; ok.disabled = false; cerrar(); pintar(); })
+    .withFailureHandler(function(e){ ok.disabled = false; $('mMsg').textContent = (e && e.message) || String(e); });
+  if (modo === 'borrar') run.adminBorrar(KEY, filaSel);
+  else if (modo === 'editar') run.adminEditar(KEY, filaSel, $('mFecha').value, $('mHora').value, $('mNombre').value);
+  else run.adminAgregar(KEY, $('mFecha').value, $('mHora').value, $('mNombre').value);
+}
+['desde','hasta','q'].forEach(function(i){$(i).addEventListener('input',pintar)});
+$('detalle').innerHTML='<tr><td>Cargando...</td></tr>';
+google.script.run
+  .withSuccessHandler(function(r){ DATOS = r; rango('mes'); })
+  .withFailureHandler(function(e){ $('detalle').innerHTML='<tr><td style="color:#b91c1c">No se pudo cargar: '+esc((e&&e.message)||e)+'</td></tr>'; })
+  .adminHistorial(KEY);
+</script>
+</body>
+</html>
