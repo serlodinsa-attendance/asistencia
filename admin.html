@@ -57,6 +57,7 @@ h2{font-size:15px;margin:16px 0 6px}
   <button onclick="rango('mes')">Este mes</button>
   <button class="sec" onclick="rango('todo')">Todo</button>
   <button class="sec" onclick="csv()">Descargar CSV</button>
+  <button style="background:#7c3aed" onclick="reporteCsv()">Descargar reporte de faltas</button>
   <button style="background:#16a34a" onclick="abrir(0)">+ Agregar asistencia</button>
 </div>
 <div class="kpis">
@@ -65,6 +66,7 @@ h2{font-size:15px;margin:16px 0 6px}
   <div class="kpi"><b id="kDias">0</b>días</div>
 </div>
 <div id="alertas"></div>
+<div id="reporte"></div>
 <h2>Resumen por persona</h2>
 <div class="wrap" style="max-height:30vh"><table id="resumen"></table></div>
 <h2>Detalle</h2>
@@ -123,7 +125,67 @@ function pintar(){
   $('alertas').innerHTML = ah ? '<div style="background:#fee2e2;color:#991b1b;border-radius:12px;padding:10px 14px;margin:12px 0;font-size:14px"><b>Alertas de posible suplantación</b>'+ah+'</div>' : '';
   var ds='<tr><th>Fecha</th><th>Hora</th><th>Nombre</th><th>Dist. (m)</th><th>Dispositivo</th><th></th></tr>';
   filtrado.forEach(function(r){ds+='<tr><td>'+r[0]+'</td><td>'+r[1]+'</td><td'+(dup[r[0]+'|'+r[5]]?' style="background:#fee2e2" title="Mismo celular marcó para varias personas"':'')+'>'+(dup[r[0]+'|'+r[5]]?'⚠ ':'')+esc(r[2])+'</td><td>'+r[3]+'</td><td style="font-family:monospace">'+(r[5]?esc(String(r[5]).slice(0,6)):'—')+'</td><td style="white-space:nowrap"><button class="sec" onclick="abrir('+r[4]+')">Editar</button> <button style="background:#dc2626" onclick="borrar('+r[4]+')">Borrar</button></td></tr>'});
-  $('detalle').innerHTML=ds;
+  $('detalle').innerHTML=ds; renderReporte();
+}
+function norm(s){return String(s).normalize('NFD').replace(/[̀-ͯ]/g,'').toLowerCase().replace(/\s+/g,' ').trim()}
+function partes(s){var p=s.split('-');return new Date(+p[0],+p[1]-1,+p[2])}
+function reporte(){
+  var q=$('q').value.trim().toLowerCase(), hoy=iso(new Date());
+  var d=$('desde').value, h=$('hasta').value;
+  var nombres={}, primeros={}, marcas={};
+  var minF=hoy;
+  DATOS.forEach(function(r){
+    if(r[0]<minF) minF=r[0];
+    if(q && String(r[2]).toLowerCase().indexOf(q)<0) return;
+    var k=norm(r[2]); nombres[k]=nombres[k]||r[2];
+    if(!primeros[k]||r[0]<primeros[k]) primeros[k]=r[0];
+    marcas[k]=marcas[k]||{}; marcas[k][r[0]]=1;
+  });
+  var desde=d||minF, hasta=h||hoy; if(hasta>hoy) hasta=hoy;
+  var dias=[], c=partes(desde), fin=partes(hasta), n=0;
+  while(c<=fin && n<800){ dias.push(iso(c)); c.setDate(c.getDate()+1); n++; }
+  var rows=[];
+  Object.keys(marcas).forEach(function(k){
+    var m=marcas[k];
+    if(!dias.some(function(x){return m[x]})) return;
+    var inicio = primeros[k] > desde ? primeros[k] : desde;
+    var p={nombre:nombres[k], habiles:0, asistio:0, faltas:[], domingos:[], estado:{}};
+    dias.forEach(function(x){
+      var dw=partes(x).getDay();
+      if(dw===0){ if(m[x]){p.domingos.push(x); p.estado[x]='DOMINGO (pago extra)';} else p.estado[x]=''; return; }
+      if(x<inicio){ p.estado[x]='-'; return; }
+      if(m[x]){ p.habiles++; p.asistio++; p.estado[x]='ASISTIO'; }
+      else if(x<hoy){ p.habiles++; p.faltas.push(x); p.estado[x]='FALTA'; }
+      else { p.estado[x]='pendiente'; }
+    });
+    rows.push(p);
+  });
+  rows.sort(function(a,b){return b.faltas.length-a.faltas.length || a.nombre.localeCompare(b.nombre)});
+  return {desde:desde, hasta:hasta, dias:dias, rows:rows};
+}
+function renderReporte(){
+  var R=reporte(), el=$('reporte');
+  if(!R.rows.length){ el.innerHTML=''; return; }
+  var h='<h2>Inasistencias ('+R.desde+' a '+R.hasta+')</h2><p class="muted" style="margin:0 0 6px">Se cuentan lunes a sábado. Los domingos no cuentan como falta; si marcan, se anotan como domingo trabajado (pago extra). Los días antes de la primera marca de cada persona y el día de hoy no cuentan como falta.</p><div class="wrap" style="max-height:40vh"><table><tr><th>Nombre</th><th>Días hábiles</th><th>Asistió</th><th>Faltas</th><th>% asist.</th><th>Domingos trabajados</th><th>Fechas de falta</th></tr>';
+  R.rows.forEach(function(p){
+    var pc=p.habiles?Math.round(100*p.asistio/p.habiles):100;
+    h+='<tr><td>'+esc(p.nombre)+'</td><td>'+p.habiles+'</td><td>'+p.asistio+'</td><td style="'+(p.faltas.length?'color:#b91c1c;font-weight:700':'')+'">'+p.faltas.length+'</td><td>'+pc+'%</td><td>'+p.domingos.length+(p.domingos.length?' ('+p.domingos.join(', ')+')':'')+'</td><td>'+(p.faltas.join(', ')||'—')+'</td></tr>';
+  });
+  el.innerHTML=h+'</table></div>';
+}
+function reporteCsv(){
+  var R=reporte();
+  var q=function(v){return '"'+String(v).replace(/"/g,'""')+'"'};
+  var head=['Nombre','Dias habiles (lun-sab)','Asistio','Faltas','% asistencia','Domingos trabajados (pago extra)','Fechas de falta'].concat(R.dias);
+  var lines=[head.map(q).join(',')];
+  R.rows.forEach(function(p){
+    var pc=p.habiles?Math.round(100*p.asistio/p.habiles):100;
+    var row=[p.nombre,p.habiles,p.asistio,p.faltas.length,pc+'%',p.domingos.length,p.faltas.join(' ')].concat(R.dias.map(function(x){return p.estado[x]}));
+    lines.push(row.map(q).join(','));
+  });
+  var a=document.createElement('a');
+  a.href='data:text/csv;charset=utf-8,'+encodeURIComponent('﻿'+lines.join('\n'));
+  a.download='reporte_asistencia_'+R.desde+'_a_'+R.hasta+'.csv'; a.click();
 }
 function csv(){
   var t='Fecha,Hora,Nombre,Distancia,Dispositivo\n'+filtrado.map(function(r){return [r[0],r[1],'"'+String(r[2]).replace(/"/g,'""')+'"',r[3],r[5]||''].join(',')}).join('\n');
