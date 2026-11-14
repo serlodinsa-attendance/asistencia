@@ -59,6 +59,7 @@ h2{font-size:15px;margin:16px 0 6px}
   <button class="sec" onclick="csv()">Descargar CSV</button>
   <button style="background:#7c3aed" onclick="reporteCsv()">Descargar reporte de faltas</button>
   <button style="background:#16a34a" onclick="abrir(0)">+ Agregar asistencia</button>
+  <button style="background:#0891b2" onclick="personalUI()">Personal</button>
 </div>
 <div class="kpis">
   <div class="kpi"><b id="kTotal">0</b>registros</div>
@@ -66,6 +67,7 @@ h2{font-size:15px;margin:16px 0 6px}
   <div class="kpi"><b id="kDias">0</b>días</div>
 </div>
 <div id="alertas"></div>
+<div id="personal" style="display:none;background:#fff;border-radius:12px;padding:12px;margin:10px 0;box-shadow:0 1px 4px rgba(0,0,0,.08)"></div>
 <div id="reporte"></div>
 <h2>Resumen por persona</h2>
 <div class="wrap" style="max-height:30vh"><table id="resumen"></table></div>
@@ -129,6 +131,49 @@ function pintar(){
 }
 function norm(s){return String(s).normalize('NFD').replace(/[̀-ͯ]/g,'').toLowerCase().replace(/\s+/g,' ').trim()}
 function partes(s){var p=s.split('-');return new Date(+p[0],+p[1]-1,+p[2])}
+var PERSONAL = [];
+function personalUI() {
+  var p = $('personal');
+  if (p.style.display === 'block') { p.style.display = 'none'; return; }
+  p.style.display = 'block'; p.innerHTML = 'Cargando lista...';
+  google.script.run.withSuccessHandler(function (l) { PERSONAL = l; pintarPersonal(); }).withFailureHandler(function (e) { p.innerHTML = 'Error: ' + esc(e.message); }).listaPersonal();
+}
+function pintarPersonal() {
+  var h = '<b>Personal (' + PERSONAL.length + ')</b><p class="muted" style="margin:4px 0 8px">Esta lista es la que aparece en la página de marcar asistencia. Los registros anteriores de una persona eliminada se conservan.</p>';
+  h += '<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:8px"><input id="pN" placeholder="Nombre completo" style="min-width:260px"><select id="pC" style="padding:9px;border:1.5px solid #cbd5e1;border-radius:8px"><option>Piloto</option><option>Auxiliar</option><option>Otro</option></select><button onclick="personalAdd()">+ Agregar persona</button><span id="pMsg" style="font-size:13px;color:#b91c1c"></span></div>';
+  h += '<input id="pQ" placeholder="Buscar en la lista..." oninput="pintarPersonalTabla()" style="margin-bottom:8px;min-width:260px"><div class="wrap" style="max-height:40vh"><table id="pT"></table></div>';
+  $('personal').innerHTML = h; pintarPersonalTabla();
+}
+function pintarPersonalTabla() {
+  var q = norm($('pQ') ? $('pQ').value : ''), t = '<tr><th>Nombre</th><th>Cargo</th><th></th></tr>';
+  PERSONAL.forEach(function (p, i) {
+    if (q && norm(p.n).indexOf(q) < 0) return;
+    t += '<tr><td>' + esc(p.n) + '</td><td>' + esc(p.c) + '</td><td style="white-space:nowrap"><button class="sec" onclick="personalEdit(' + i + ')">Editar</button> <button style="background:#dc2626" onclick="personalDel(' + i + ')">Eliminar</button></td></tr>';
+  });
+  $('pT').innerHTML = t;
+}
+function personalGuardar(lista) {
+  var m = $('pMsg'); if (m) { m.style.color = '#475569'; m.textContent = 'Guardando...'; }
+  google.script.run.withSuccessHandler(function (l) { PERSONAL = l; pintarPersonal(); var m2 = $('pMsg'); if (m2) { m2.style.color = '#15803d'; m2.textContent = '✔ Guardado'; } }).withFailureHandler(function (e) { var m2 = $('pMsg'); if (m2) { m2.style.color = '#b91c1c'; m2.textContent = 'Error: ' + e.message; } }).adminPersonal(KEY, lista);
+}
+function personalAdd() {
+  var n = $('pN').value.replace(/\s+/g, ' ').trim(), m = $('pMsg');
+  if (n.length < 4 || n.indexOf(' ') === -1) { m.style.color = '#b91c1c'; m.textContent = 'Escribe nombre y apellido.'; return; }
+  if (PERSONAL.some(function (p) { return norm(p.n) === norm(n); })) { m.style.color = '#b91c1c'; m.textContent = 'Esa persona ya está en la lista.'; return; }
+  personalGuardar(PERSONAL.concat([{ n: n, c: $('pC').value }]));
+}
+function personalEdit(i) {
+  var p = PERSONAL[i]; if (!p) return;
+  var n = prompt('Nombre completo:', p.n); if (n === null) return;
+  n = n.replace(/\s+/g, ' ').trim(); if (!n) return;
+  var c = prompt('Cargo (Piloto, Auxiliar u Otro):', p.c); if (c === null) return;
+  personalGuardar(PERSONAL.map(function (x, j) { return j === i ? { n: n, c: c.trim() } : x; }));
+}
+function personalDel(i) {
+  var p = PERSONAL[i]; if (!p) return;
+  if (!confirm('¿Eliminar a ' + p.n + ' de la lista de personal? Ya no aparecerá para marcar. Sus registros anteriores se conservan.')) return;
+  personalGuardar(PERSONAL.filter(function (x, j) { return j !== i; }));
+}
 function reporte(){
   var q=$('q').value.trim().toLowerCase(), hoy=iso(new Date());
   var d=$('desde').value, h=$('hasta').value;
