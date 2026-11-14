@@ -163,15 +163,45 @@ function reporte(){
   rows.sort(function(a,b){return b.faltas.length-a.faltas.length || a.nombre.localeCompare(b.nombre)});
   return {desde:desde, hasta:hasta, dias:dias, rows:rows};
 }
-function renderReporte(){
-  var R=reporte(), el=$('reporte');
-  if(!R.rows.length){ el.innerHTML=''; return; }
-  var h='<h2>Inasistencias ('+R.desde+' a '+R.hasta+')</h2><p class="muted" style="margin:0 0 6px">Se cuentan lunes a sábado. Los domingos no cuentan como falta; si marcan, se anotan como domingo trabajado (pago extra). Los días antes de la primera marca de cada persona y el día de hoy no cuentan como falta.</p><div class="wrap" style="max-height:40vh"><table><tr><th>Nombre</th><th>Días hábiles</th><th>Asistió</th><th>Faltas</th><th>% asist.</th><th>Domingos trabajados</th><th>Fechas de falta</th></tr>';
-  R.rows.forEach(function(p){
-    var pc=p.habiles?Math.round(100*p.asistio/p.habiles):100;
-    h+='<tr><td>'+esc(p.nombre)+'</td><td>'+p.habiles+'</td><td>'+p.asistio+'</td><td style="'+(p.faltas.length?'color:#b91c1c;font-weight:700':'')+'">'+p.faltas.length+'</td><td>'+pc+'%</td><td>'+p.domingos.length+(p.domingos.length?' ('+p.domingos.join(', ')+')':'')+'</td><td>'+(p.faltas.join(', ')||'—')+'</td></tr>';
+var DN = ['Dom', 'Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb'];
+function renderReporte() {
+  var R = reporte(), el = $('reporte');
+  if (!R.rows.length) { el.innerHTML = ''; return; }
+  var sem = [];
+  R.dias.forEach(function (x) {
+    var d = partes(x), w = (d.getDay() + 6) % 7, l = new Date(d); l.setDate(d.getDate() - w);
+    var k = iso(l), g = sem[sem.length - 1];
+    if (!g || g.k !== k) { g = { k: k, n: 0 }; sem.push(g); }
+    g.n++;
   });
-  el.innerHTML=h+'</table></div>';
+  var tF = 0, tD = 0, sinF = 0;
+  R.rows.forEach(function (p) { tF += p.faltas.length; tD += p.domingos.length; if (!p.faltas.length) sinF++; });
+  var h = '<h2>Asistencia semanal (' + R.desde + ' a ' + R.hasta + ')</h2>';
+  h += '<div class="kpis" style="margin:6px 0"><div class="kpi"><b style="color:#b91c1c">' + tF + '</b>faltas (lun-sáb)</div><div class="kpi"><b style="color:#15803d">' + sinF + '</b>sin ninguna falta</div><div class="kpi"><b style="color:#1d4ed8">' + tD + '</b>domingos trabajados (doble)</div></div>';
+  h += '<p class="muted" style="margin:0 0 6px"><span style="background:#dcfce7;color:#166534;padding:1px 6px;border-radius:6px">✔ asistió</span> <span style="background:#fecaca;color:#b91c1c;padding:1px 6px;border-radius:6px">✘ falta</span> <span style="background:#bfdbfe;color:#1e3a8a;padding:1px 6px;border-radius:6px">★ domingo trabajado = doble</span> <span style="background:#f1f5f9;padding:1px 6px;border-radius:6px">dom. sin marcar = se paga normal</span> · Lunes a sábado es obligatorio. El día de hoy y los días antes de la primera marca no cuentan como falta.</p>';
+  h += '<div class="wrap" style="max-height:70vh"><table style="border-collapse:separate;border-spacing:0"><tr><th rowspan="2" style="position:sticky;left:0;z-index:3">Nombre</th>';
+  sem.forEach(function (g) { var d = partes(g.k); h += '<th colspan="' + g.n + '" style="text-align:center;border-left:2px solid #fff">Semana del ' + pad(d.getDate()) + '/' + pad(d.getMonth() + 1) + '</th>'; });
+  h += '<th rowspan="2">Asistió</th><th rowspan="2">Faltas</th><th rowspan="2">% asist.</th><th rowspan="2">Domingos dobles</th></tr><tr>';
+  R.dias.forEach(function (x) { var d = partes(x), dw = d.getDay(); h += '<th style="text-align:center;font-size:11px;padding:4px 6px;' + (dw === 1 ? 'border-left:2px solid #fff;' : '') + (dw === 0 ? 'background:#1e3a8a;' : '') + '">' + DN[dw] + '<br>' + d.getDate() + '</th>'; });
+  h += '</tr>';
+  R.rows.forEach(function (p) {
+    var pc = p.habiles ? Math.round(100 * p.asistio / p.habiles) : 100;
+    h += '<tr><td style="position:sticky;left:0;background:#fff;font-weight:600;white-space:nowrap">' + esc(p.nombre) + '</td>';
+    R.dias.forEach(function (x) {
+      var e = p.estado[x], dw = partes(x).getDay(), bl = dw === 1 ? 'border-left:2px solid #e2e8f0;' : '';
+      var st = 'text-align:center;padding:4px 6px;font-size:13px;' + bl, tx = '';
+      if (e === 'ASISTIO') { st += 'background:#dcfce7;color:#166534'; tx = '✔'; }
+      else if (e === 'FALTA') { st += 'background:#fecaca;color:#b91c1c;font-weight:700'; tx = '✘'; }
+      else if (e === 'DOMINGO (pago extra)') { st += 'background:#bfdbfe;color:#1e3a8a;font-weight:700'; tx = '★'; }
+      else if (dw === 0) { st += 'background:#f1f5f9;color:#94a3b8;font-size:11px'; tx = 'pago'; }
+      else if (e === 'pendiente') { st += 'color:#94a3b8'; tx = '…'; }
+      else { st += 'color:#cbd5e1'; tx = '·'; }
+      h += '<td style="' + st + '" title="' + x + '">' + tx + '</td>';
+    });
+    h += '<td style="text-align:center">' + p.asistio + '/' + p.habiles + '</td><td style="text-align:center;' + (p.faltas.length ? 'color:#b91c1c;font-weight:700' : '') + '">' + p.faltas.length + '</td><td style="text-align:center">' + pc + '%</td><td style="text-align:center;' + (p.domingos.length ? 'color:#1d4ed8;font-weight:700' : '') + '">' + p.domingos.length + '</td></tr>';
+  });
+  h += '</table></div>';
+  el.innerHTML = h;
 }
 function reporteCsv(){
   var R=reporte();
