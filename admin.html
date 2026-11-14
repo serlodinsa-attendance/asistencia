@@ -59,6 +59,7 @@ h2{font-size:15px;margin:16px 0 6px}
   <button class="sec" onclick="csv()">Descargar CSV</button>
   <button style="background:#7c3aed" onclick="reporteCsv()">Descargar reporte de faltas</button>
   <button style="background:#16a34a" onclick="abrir(0)">+ Agregar asistencia</button>
+  <button style="background:#0891b2" onclick="unirUI()">Unir nombres</button>
 </div>
 <div class="kpis">
   <div class="kpi"><b id="kTotal">0</b>registros</div>
@@ -66,6 +67,7 @@ h2{font-size:15px;margin:16px 0 6px}
   <div class="kpi"><b id="kDias">0</b>días</div>
 </div>
 <div id="alertas"></div>
+<div id="uniones" style="display:none;background:#fff;border-radius:12px;padding:12px;margin:10px 0;box-shadow:0 1px 4px rgba(0,0,0,.08)"></div>
 <div id="reporte"></div>
 <h2>Resumen por persona</h2>
 <div class="wrap" style="max-height:30vh"><table id="resumen"></table></div>
@@ -129,6 +131,31 @@ function pintar(){
 }
 function norm(s){return String(s).normalize('NFD').replace(/[̀-ͯ]/g,'').toLowerCase().replace(/\s+/g,' ').trim()}
 function partes(s){var p=s.split('-');return new Date(+p[0],+p[1]-1,+p[2])}
+var ALIAS = {}; try { ALIAS = JSON.parse(localStorage.getItem('alias') || '{}') || {}; } catch (e) { ALIAS = {}; }
+function aliasSave() { try { localStorage.setItem('alias', JSON.stringify(ALIAS)); } catch (e) {} }
+function canon(n) { return ALIAS[norm(n)] || n; }
+function unirUI() { var p = $('uniones'); if (p.style.display === 'block') { p.style.display = 'none'; return; } p.style.display = 'block'; pintarUniones(); }
+function pintarUniones() {
+  var raw = {}; DATOS.forEach(function (r) { raw[norm(r[2])] = r[2]; });
+  var names = Object.keys(raw).map(function (k) { return raw[k]; }).sort();
+  var opts = names.map(function (n) { return '<option value="' + esc(n) + '">' + esc(n) + '</option>'; }).join('');
+  var h = '<b>Unir nombres</b><p class="muted" style="margin:4px 0 8px">Elige el nombre mal escrito o repetido y el nombre correcto con el que debe contar. No se borra ningún registro; solo se cuentan juntos en el cuadro de asistencia.</p><div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center"><select id="uA" style="padding:8px;max-width:260px"><option value="">Nombre a unir…</option>' + opts + '</select> → <select id="uB" style="padding:8px;max-width:260px"><option value="">…se cuenta como</option>' + opts + '</select><button onclick="unirAdd()">Unir</button></div>';
+  var ks = Object.keys(ALIAS);
+  if (ks.length) {
+    h += '<table style="margin-top:10px"><tr><th>Nombre</th><th>Se cuenta como</th><th></th></tr>';
+    ks.forEach(function (k, i) { h += '<tr><td>' + esc(raw[k] || k) + '</td><td>' + esc(ALIAS[k]) + '</td><td><button class="sec" onclick="unirDel(' + i + ')">Quitar</button></td></tr>'; });
+    h += '</table>';
+  }
+  $('uniones').innerHTML = h;
+}
+function unirAdd() {
+  var a = $('uA').value, b = $('uB').value;
+  if (!a || !b || norm(a) === norm(b)) return;
+  var t = canon(b);
+  Object.keys(ALIAS).forEach(function (k) { if (norm(ALIAS[k]) === norm(a)) ALIAS[k] = t; });
+  ALIAS[norm(a)] = t; aliasSave(); pintarUniones(); renderReporte();
+}
+function unirDel(i) { var k = Object.keys(ALIAS)[i]; if (k === undefined) return; delete ALIAS[k]; aliasSave(); pintarUniones(); renderReporte(); }
 function reporte(){
   var q=$('q').value.trim().toLowerCase(), hoy=iso(new Date());
   var d=$('desde').value, h=$('hasta').value;
@@ -137,7 +164,7 @@ function reporte(){
   DATOS.forEach(function(r){
     if(r[0]<minF) minF=r[0];
     if(q && String(r[2]).toLowerCase().indexOf(q)<0) return;
-    var k=norm(r[2]); nombres[k]=nombres[k]||r[2];
+    var nm=canon(r[2]), k=norm(nm); nombres[k]=nombres[k]||nm;
     if(!primeros[k]||r[0]<primeros[k]) primeros[k]=r[0];
     marcas[k]=marcas[k]||{}; marcas[k][r[0]]=1;
   });
@@ -148,7 +175,7 @@ function reporte(){
   Object.keys(marcas).forEach(function(k){
     var m=marcas[k];
     if(!dias.some(function(x){return m[x]})) return;
-    var inicio = primeros[k] > desde ? primeros[k] : desde;
+    var inicio = desde;
     var p={nombre:nombres[k], habiles:0, asistio:0, faltas:[], domingos:[], estado:{}};
     dias.forEach(function(x){
       var dw=partes(x).getDay();
@@ -178,7 +205,7 @@ function renderReporte() {
   R.rows.forEach(function (p) { tF += p.faltas.length; tD += p.domingos.length; if (!p.faltas.length) sinF++; });
   var h = '<h2>Asistencia semanal (' + R.desde + ' a ' + R.hasta + ')</h2>';
   h += '<div class="kpis" style="margin:6px 0"><div class="kpi"><b style="color:#b91c1c">' + tF + '</b>faltas (lun-sáb)</div><div class="kpi"><b style="color:#15803d">' + sinF + '</b>sin ninguna falta</div><div class="kpi"><b style="color:#1d4ed8">' + tD + '</b>domingos trabajados (doble)</div></div>';
-  h += '<p class="muted" style="margin:0 0 6px"><span style="background:#dcfce7;color:#166534;padding:1px 6px;border-radius:6px">✔ asistió</span> <span style="background:#fecaca;color:#b91c1c;padding:1px 6px;border-radius:6px">✘ falta</span> <span style="background:#bfdbfe;color:#1e3a8a;padding:1px 6px;border-radius:6px">★ domingo trabajado = doble</span> <span style="background:#f1f5f9;padding:1px 6px;border-radius:6px">dom. sin marcar = se paga normal</span> · Lunes a sábado es obligatorio. El día de hoy y los días antes de la primera marca no cuentan como falta.</p>';
+  h += '<p class="muted" style="margin:0 0 6px"><span style="background:#dcfce7;color:#166534;padding:1px 6px;border-radius:6px">✔ asistió</span> <span style="background:#fecaca;color:#b91c1c;padding:1px 6px;border-radius:6px">✘ falta</span> <span style="background:#bfdbfe;color:#1e3a8a;padding:1px 6px;border-radius:6px">★ domingo trabajado = doble</span> <span style="background:#f1f5f9;padding:1px 6px;border-radius:6px">dom. sin marcar = se paga normal</span> · Lunes a sábado es obligatorio. Solo el día de hoy no cuenta como falta.</p>';
   h += '<div class="wrap" style="max-height:70vh"><table style="border-collapse:separate;border-spacing:0"><tr><th rowspan="2" style="position:sticky;left:0;z-index:3">Nombre</th>';
   sem.forEach(function (g) { var d = partes(g.k); h += '<th colspan="' + g.n + '" style="text-align:center;border-left:2px solid #fff">Semana del ' + pad(d.getDate()) + '/' + pad(d.getMonth() + 1) + '</th>'; });
   h += '<th rowspan="2">Asistió</th><th rowspan="2">Faltas</th><th rowspan="2">% asist.</th><th rowspan="2">Domingos dobles</th></tr><tr>';
