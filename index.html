@@ -55,6 +55,16 @@
       margin-bottom: 16px;
       outline: none;
     }
+    select#nombre {
+      width: 100%;
+      padding: 14px;
+      font-size: 16px;
+      border: 1.5px solid #cbd5e1;
+      border-radius: 10px;
+      margin-bottom: 16px;
+      background: #fff;
+      color: #0f172a;
+    }
     input[type="text"]:focus {
       border-color: #2563eb;
     }
@@ -137,11 +147,11 @@
   <div class="card">
     <div class="icon">🏢</div>
     <h1>Registro de Asistencia</h1>
-    <p class="subtitle">Escribe tu nombre completo para marcar tu llegada</p>
+    <p class="subtitle">Selecciona tu nombre para marcar tu llegada</p>
 
     <form id="form" onsubmit="return false;">
-      <label for="nombre">Nombre completo</label>
-      <input type="text" id="nombre" autocomplete="name" placeholder="Ej. Juan Pérez" autofocus>
+      <label for="nombre">Tu nombre</label>
+      <select id="nombre"><option value="">Cargando lista...</option></select>
       <button type="submit" id="btn" onclick="marcar()">Marcar asistencia</button>
     </form>
 
@@ -173,8 +183,9 @@
 
     function marcar() {
       var nombre = nombreInput.value.trim();
+      try { if (nombre) localStorage.setItem('uma_nombre', nombre); } catch (e) {}
       if (!nombre) {
-        showMsg('Por favor escribe tu nombre completo.', 'err');
+        showMsg('Por favor selecciona tu nombre de la lista.', 'err');
         nombreInput.focus();
         return;
       }
@@ -229,6 +240,27 @@
       );
     }
 
+    (function cargarLista() {
+      var sel = document.getElementById('nombre');
+      function esc(t) { return String(t).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;'); }
+      function llenar(l) {
+        var g = '';
+        try { g = localStorage.getItem('uma_nombre') || ''; } catch (e) {}
+        sel.innerHTML = '<option value="">— Selecciona tu nombre —</option>' + l.map(function (p) { return '<option value="' + esc(p.n) + '">' + esc(p.n) + '</option>'; }).join('');
+        if (g && l.some(function (p) { return p.n === g; })) sel.value = g;
+      }
+      try { var c = JSON.parse(localStorage.getItem('uma_lista') || 'null'); if (c && c.length) llenar(c); } catch (e) {}
+      google.script.run
+        .withSuccessHandler(function (l) {
+          if (!l || !l.length) return;
+          try { localStorage.setItem('uma_lista', JSON.stringify(l)); } catch (e) {}
+          var cur = sel.value; llenar(l); if (cur && l.some(function (p) { return p.n === cur; })) sel.value = cur;
+        })
+        .withFailureHandler(function () {
+          if (sel.options.length <= 1) sel.innerHTML = '<option value="">No se pudo cargar la lista. Recarga la página.</option>';
+        })
+        .listaPersonal();
+    })();
     nombreInput.addEventListener('keydown', function (e) {
       if (e.key === 'Enter') { marcar(); }
     });
