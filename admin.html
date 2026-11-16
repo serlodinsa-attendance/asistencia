@@ -91,7 +91,7 @@ h2{font-size:15px;margin:16px 0 6px}
 </div>
 <p class="muted">Para ver registros nuevos, recarga la página.</p>
 <script>
-var DATOS = [];
+var DATOS = [], RAW = [], INICIO = '2026-11-16', LISTA = {};
 var KEY = new URLSearchParams(location.search).get('key') || '';
 var modo = '', filaSel = 0;
 var $ = function(i){return document.getElementById(i)};
@@ -107,7 +107,7 @@ function rango(t){
 }
 var filtrado=[];
 function esc(s){return String(s).replace(/[&<>"]/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]})}
-function pintar(){
+function pintar(){ if(!$('desde').value||$('desde').value<INICIO) $('desde').value=INICIO;
   var d=$('desde').value,h=$('hasta').value,q=$('q').value.trim().toLowerCase();
   filtrado=DATOS.filter(function(r){
     return (!d||r[0]>=d)&&(!h||r[0]<=h)&&(!q||String(r[2]).toLowerCase().indexOf(q)>=0);
@@ -154,7 +154,7 @@ function pintarPersonalTabla() {
 }
 function personalGuardar(lista) {
   var m = $('pMsg'); if (m) { m.style.color = '#475569'; m.textContent = 'Guardando...'; }
-  google.script.run.withSuccessHandler(function (l) { PERSONAL = l; pintarPersonal(); var m2 = $('pMsg'); if (m2) { m2.style.color = '#15803d'; m2.textContent = '✔ Guardado'; } }).withFailureHandler(function (e) { var m2 = $('pMsg'); if (m2) { m2.style.color = '#b91c1c'; m2.textContent = 'Error: ' + e.message; } }).adminPersonal(KEY, lista);
+  google.script.run.withSuccessHandler(function (l) { PERSONAL = l; refrescarLista(); pintar(); pintarPersonal(); var m2 = $('pMsg'); if (m2) { m2.style.color = '#15803d'; m2.textContent = '✔ Guardado'; } }).withFailureHandler(function (e) { var m2 = $('pMsg'); if (m2) { m2.style.color = '#b91c1c'; m2.textContent = 'Error: ' + e.message; } }).adminPersonal(KEY, lista);
 }
 function personalAdd() {
   var n = $('pN').value.replace(/\s+/g, ' ').trim(), m = $('pMsg');
@@ -174,6 +174,11 @@ function personalDel(i) {
   if (!confirm('¿Eliminar a ' + p.n + ' de la lista de personal? Ya no aparecerá para marcar. Sus registros anteriores se conservan.')) return;
   personalGuardar(PERSONAL.filter(function (x, j) { return j !== i; }));
 }
+function refrescarLista() {
+  LISTA = {}; PERSONAL.forEach(function (p) { LISTA[norm(p.n)] = 1; });
+  DATOS = RAW.filter(function (r) { return r[0] >= INICIO && LISTA[norm(r[2])]; });
+}
+function setDatos(n) { RAW = n; refrescarLista(); }
 function reporte(){
   var q=$('q').value.trim().toLowerCase(), hoy=iso(new Date());
   var d=$('desde').value, h=$('hasta').value;
@@ -186,13 +191,13 @@ function reporte(){
     if(!primeros[k]||r[0]<primeros[k]) primeros[k]=r[0];
     marcas[k]=marcas[k]||{}; marcas[k][r[0]]=1;
   });
-  var desde=d||minF, hasta=h||hoy; if(hasta>hoy) hasta=hoy;
+  var desde=d||minF, hasta=h||hoy; if(hasta>hoy) hasta=hoy; if(desde<INICIO) desde=INICIO; PERSONAL.forEach(function(p){ if(q && p.n.toLowerCase().indexOf(q)<0) return; var k=norm(p.n); nombres[k]=nombres[k]||p.n; marcas[k]=marcas[k]||{}; });
   var dias=[], c=partes(desde), fin=partes(hasta), n=0;
   while(c<=fin && n<800){ dias.push(iso(c)); c.setDate(c.getDate()+1); n++; }
   var rows=[];
   Object.keys(marcas).forEach(function(k){
     var m=marcas[k];
-    if(!dias.some(function(x){return m[x]})) return;
+    
     var inicio = desde;
     var p={nombre:nombres[k], habiles:0, asistio:0, faltas:[], domingos:[], estado:{}};
     dias.forEach(function(x){
@@ -223,7 +228,7 @@ function renderReporte() {
   R.rows.forEach(function (p) { tF += p.faltas.length; tD += p.domingos.length; if (!p.faltas.length) sinF++; });
   var h = '<h2>Asistencia semanal (' + R.desde + ' a ' + R.hasta + ')</h2>';
   h += '<div class="kpis" style="margin:6px 0"><div class="kpi"><b style="color:#b91c1c">' + tF + '</b>faltas (lun-sáb)</div><div class="kpi"><b style="color:#15803d">' + sinF + '</b>sin ninguna falta</div><div class="kpi"><b style="color:#1d4ed8">' + tD + '</b>domingos trabajados (doble)</div></div>';
-  h += '<p class="muted" style="margin:0 0 6px"><span style="background:#dcfce7;color:#166534;padding:1px 6px;border-radius:6px">✔ asistió</span> <span style="background:#fecaca;color:#b91c1c;padding:1px 6px;border-radius:6px">✘ falta</span> <span style="background:#bfdbfe;color:#1e3a8a;padding:1px 6px;border-radius:6px">★ domingo trabajado = doble</span> <span style="background:#f1f5f9;padding:1px 6px;border-radius:6px">dom. sin marcar = se paga normal</span> · Lunes a sábado es obligatorio. Solo el día de hoy no cuenta como falta.</p>';
+  h += '<p class="muted" style="margin:0 0 6px"><span style="background:#dcfce7;color:#166534;padding:1px 6px;border-radius:6px">✔ asistió</span> <span style="background:#fecaca;color:#b91c1c;padding:1px 6px;border-radius:6px">✘ falta</span> <span style="background:#bfdbfe;color:#1e3a8a;padding:1px 6px;border-radius:6px">★ domingo trabajado = doble</span> <span style="background:#f1f5f9;padding:1px 6px;border-radius:6px">dom. sin marcar = se paga normal</span> · Lunes a sábado es obligatorio. Solo el día de hoy no cuenta como falta. Conteo iniciado el 16/11/2026, solo con el personal de la lista.</p>';
   h += '<div class="wrap" style="max-height:70vh"><table style="border-collapse:separate;border-spacing:0"><tr><th rowspan="2" style="position:sticky;left:0;z-index:3">Nombre</th>';
   sem.forEach(function (g) { var d = partes(g.k); h += '<th colspan="' + g.n + '" style="text-align:center;border-left:2px solid #fff">Semana del ' + pad(d.getDate()) + '/' + pad(d.getMonth() + 1) + '</th>'; });
   h += '<th rowspan="2">Asistió</th><th rowspan="2">Faltas</th><th rowspan="2">% asist.</th><th rowspan="2">Domingos dobles</th></tr><tr>';
@@ -292,7 +297,7 @@ function cerrar(){ $('modal').style.display = 'none'; }
 function guardar(){
   var ok = $('mOk'); ok.disabled = true; $('mMsg').textContent = 'Guardando...';
   var run = google.script.run
-    .withSuccessHandler(function(nuevos){ DATOS = nuevos; ok.disabled = false; cerrar(); pintar(); })
+    .withSuccessHandler(function(nuevos){ setDatos(nuevos); ok.disabled = false; cerrar(); pintar(); })
     .withFailureHandler(function(e){ ok.disabled = false; $('mMsg').textContent = (e && e.message) || String(e); });
   if (modo === 'borrar') run.adminBorrar(KEY, filaSel);
   else if (modo === 'editar') run.adminEditar(KEY, filaSel, $('mFecha').value, $('mHora').value, $('mNombre').value);
@@ -301,7 +306,7 @@ function guardar(){
 ['desde','hasta','q'].forEach(function(i){$(i).addEventListener('input',pintar)});
 $('detalle').innerHTML='<tr><td>Cargando...</td></tr>';
 google.script.run
-  .withSuccessHandler(function(r){ DATOS = r; rango('mes'); })
+  .withSuccessHandler(function(r){ RAW = r; google.script.run.withSuccessHandler(function (l) { PERSONAL = l; refrescarLista(); rango('mes'); }).withFailureHandler(function (e) { $('detalle').innerHTML = '<tr><td style="color:#b91c1c">No se pudo cargar la lista de personal: ' + esc(e.message) + '</td></tr>'; }).listaPersonal(); })
   .withFailureHandler(function(e){ $('detalle').innerHTML='<tr><td style="color:#b91c1c">No se pudo cargar: '+esc((e&&e.message)||e)+'</td></tr>'; })
   .adminHistorial(KEY);
 </script>
