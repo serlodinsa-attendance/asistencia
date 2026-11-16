@@ -180,6 +180,7 @@ function refrescarLista() {
 }
 function setDatos(n) { RAW = n; refrescarLista(); }
 var ROWSN = [];
+function filaHoy(n) { var f = iso(new Date()), k = norm(n), r = DATOS.filter(function (x) { return x[0] === f && norm(x[2]) === k; })[0]; return r ? r[4] : 0; }
 function marcadoHoy(n) { var f = iso(new Date()), k = norm(n); return DATOS.some(function (r) { return r[0] === f && norm(r[2]) === k; }); }
 function marcarManual(i, btn) {
   var n = ROWSN[i]; if (!n) return;
@@ -259,7 +260,7 @@ function renderReporte() {
       else { st += 'color:#cbd5e1'; tx = '·'; }
       h += '<td style="' + st + '" title="' + x + '">' + tx + '</td>';
     });
-    h += '<td style="text-align:center">' + p.asistio + '/' + p.habiles + '</td><td style="text-align:center;' + (p.faltas.length ? 'color:#b91c1c;font-weight:700' : '') + '">' + p.faltas.length + '</td><td style="text-align:center">' + pc + '%</td><td style="text-align:center;' + (p.domingos.length ? 'color:#1d4ed8;font-weight:700' : '') + '">' + p.domingos.length + '</td><td style="text-align:center;white-space:nowrap">' + (marcadoHoy(p.nombre) ? '<span style="color:#15803d;font-weight:700">✔ marcó hoy</span>' : '<button style="padding:5px 10px;font-size:12px" onclick="marcarManual(' + (ROWSN.push(p.nombre) - 1) + ',this)">Marcar</button>') + '</td></tr>';
+    h += '<td style="text-align:center">' + p.asistio + '/' + p.habiles + '</td><td style="text-align:center;' + (p.faltas.length ? 'color:#b91c1c;font-weight:700' : '') + '">' + p.faltas.length + '</td><td style="text-align:center">' + pc + '%</td><td style="text-align:center;' + (p.domingos.length ? 'color:#1d4ed8;font-weight:700' : '') + '">' + p.domingos.length + '</td><td style="text-align:center;white-space:nowrap">' + (marcadoHoy(p.nombre) ? '<span style="color:#15803d;font-weight:700">✔ marcó hoy</span> <button class="sec" style="padding:5px 10px;font-size:12px" onclick="borrar(' + filaHoy(p.nombre) + ')">Quitar</button>' : '<button style="padding:5px 10px;font-size:12px" onclick="marcarManual(' + (ROWSN.push(p.nombre) - 1) + ',this)">Marcar</button>') + '</td></tr>';
   });
   h += '</table></div>';
   el.innerHTML = h;
