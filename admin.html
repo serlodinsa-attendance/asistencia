@@ -179,6 +179,17 @@ function refrescarLista() {
   DATOS = RAW.filter(function (r) { return r[0] >= INICIO && LISTA[norm(r[2])]; });
 }
 function setDatos(n) { RAW = n; refrescarLista(); }
+var ROWSN = [];
+function marcadoHoy(n) { var f = iso(new Date()), k = norm(n); return DATOS.some(function (r) { return r[0] === f && norm(r[2]) === k; }); }
+function marcarManual(i, btn) {
+  var n = ROWSN[i]; if (!n) return;
+  var d = new Date(), f = iso(d), hh = pad(d.getHours()) + ':' + pad(d.getMinutes()) + ':' + pad(d.getSeconds());
+  if (btn) { btn.disabled = true; btn.textContent = '...'; }
+  google.script.run
+    .withSuccessHandler(function (nuevos) { setDatos(nuevos); pintar(); })
+    .withFailureHandler(function (e) { if (btn) { btn.disabled = false; btn.textContent = 'Marcar'; } alert('No se pudo marcar a ' + n + ': ' + e.message); })
+    .adminAgregar(KEY, f, hh, n);
+}
 function reporte(){
   var q=$('q').value.trim().toLowerCase(), hoy=iso(new Date());
   var d=$('desde').value, h=$('hasta').value;
@@ -215,7 +226,7 @@ function reporte(){
 }
 var DN = ['Dom', 'Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb'];
 function renderReporte() {
-  var R = reporte(), el = $('reporte');
+  var R = reporte(), el = $('reporte'); ROWSN = [];
   if (!R.rows.length) { el.innerHTML = ''; return; }
   var sem = [];
   R.dias.forEach(function (x) {
@@ -231,7 +242,7 @@ function renderReporte() {
   h += '<p class="muted" style="margin:0 0 6px"><span style="background:#dcfce7;color:#166534;padding:1px 6px;border-radius:6px">✔ asistió</span> <span style="background:#fecaca;color:#b91c1c;padding:1px 6px;border-radius:6px">✘ falta</span> <span style="background:#bfdbfe;color:#1e3a8a;padding:1px 6px;border-radius:6px">★ domingo trabajado = doble</span> <span style="background:#f1f5f9;padding:1px 6px;border-radius:6px">dom. sin marcar = se paga normal</span> · Lunes a sábado es obligatorio. Solo el día de hoy no cuenta como falta. Conteo iniciado el 16/11/2026, solo con el personal de la lista.</p>';
   h += '<div class="wrap" style="max-height:70vh"><table style="border-collapse:separate;border-spacing:0"><tr><th rowspan="2" style="position:sticky;left:0;z-index:3">Nombre</th>';
   sem.forEach(function (g) { var d = partes(g.k); h += '<th colspan="' + g.n + '" style="text-align:center;border-left:2px solid #fff">Semana del ' + pad(d.getDate()) + '/' + pad(d.getMonth() + 1) + '</th>'; });
-  h += '<th rowspan="2">Asistió</th><th rowspan="2">Faltas</th><th rowspan="2">% asist.</th><th rowspan="2">Domingos dobles</th></tr><tr>';
+  h += '<th rowspan="2">Asistió</th><th rowspan="2">Faltas</th><th rowspan="2">% asist.</th><th rowspan="2">Domingos dobles</th><th rowspan="2">Marcar hoy</th></tr><tr>';
   R.dias.forEach(function (x) { var d = partes(x), dw = d.getDay(); h += '<th style="text-align:center;font-size:11px;padding:4px 6px;' + (dw === 1 ? 'border-left:2px solid #fff;' : '') + (dw === 0 ? 'background:#1e3a8a;' : '') + '">' + DN[dw] + '<br>' + d.getDate() + '</th>'; });
   h += '</tr>';
   R.rows.forEach(function (p) {
@@ -248,7 +259,7 @@ function renderReporte() {
       else { st += 'color:#cbd5e1'; tx = '·'; }
       h += '<td style="' + st + '" title="' + x + '">' + tx + '</td>';
     });
-    h += '<td style="text-align:center">' + p.asistio + '/' + p.habiles + '</td><td style="text-align:center;' + (p.faltas.length ? 'color:#b91c1c;font-weight:700' : '') + '">' + p.faltas.length + '</td><td style="text-align:center">' + pc + '%</td><td style="text-align:center;' + (p.domingos.length ? 'color:#1d4ed8;font-weight:700' : '') + '">' + p.domingos.length + '</td></tr>';
+    h += '<td style="text-align:center">' + p.asistio + '/' + p.habiles + '</td><td style="text-align:center;' + (p.faltas.length ? 'color:#b91c1c;font-weight:700' : '') + '">' + p.faltas.length + '</td><td style="text-align:center">' + pc + '%</td><td style="text-align:center;' + (p.domingos.length ? 'color:#1d4ed8;font-weight:700' : '') + '">' + p.domingos.length + '</td><td style="text-align:center;white-space:nowrap">' + (marcadoHoy(p.nombre) ? '<span style="color:#15803d;font-weight:700">✔ marcó hoy</span>' : '<button style="padding:5px 10px;font-size:12px" onclick="marcarManual(' + (ROWSN.push(p.nombre) - 1) + ',this)">Marcar</button>') + '</td></tr>';
   });
   h += '</table></div>';
   el.innerHTML = h;
