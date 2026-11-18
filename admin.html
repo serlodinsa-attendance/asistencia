@@ -58,6 +58,7 @@ h2{font-size:15px;margin:16px 0 6px}
   <button class="sec" onclick="rango('todo')">Todo</button>
   <button class="sec" onclick="csv()">Descargar CSV</button>
   <button style="background:#7c3aed" onclick="reporteCsv()">Descargar reporte de faltas</button>
+  <button style="background:#15803d" onclick="excelAsistencia(this)">📊 Descargar Excel</button>
   <button style="background:#16a34a" onclick="abrir(0)">+ Agregar asistencia</button>
   <button style="background:#0891b2" onclick="personalUI()">Personal</button>
 </div>
@@ -265,6 +266,224 @@ function renderReporte() {
   h += '</table></div>';
   el.innerHTML = h;
 }
+/* ===== Excel de asistencia ===== */
+var EXJS_URL = 'https://cdnjs.cloudflare.com/ajax/libs/exceljs/4.4.0/exceljs.min.js';
+var DIAS_ES = ['Dom', 'Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb'];
+function fmtFecha(s) { var p = s.split('-'); return p[2] + '/' + p[1] + '/' + p[0]; }
+function xlsxBuild(EJ, R, PERS, filas) {
+  var AZUL = 'FF0F172A', GRIS = 'FFF1F5F9', LINEA = 'FFCBD5E1';
+  var fill = function (c) { return { type: 'pattern', pattern: 'solid', fgColor: { argb: c } }; };
+  var borde = { top: { style: 'thin', color: { argb: LINEA } }, left: { style: 'thin', color: { argb: LINEA } }, bottom: { style: 'thin', color: { argb: LINEA } }, right: { style: 'thin', color: { argb: LINEA } } };
+  var F = 'Calibri';
+  var cargoDe = {};
+  PERS.forEach(function (p) { cargoDe[norm(p.n)] = p.c || 'Otro'; });
+  var grupos = [
+    { hoja: 'Pilotos', cargo: 'Piloto', plural: 'PILOTOS', color: 'FF2563EB', filas: [] },
+    { hoja: 'Auxiliares', cargo: 'Auxiliar', plural: 'AUXILIARES', color: 'FF0891B2', filas: [] },
+    { hoja: 'Otros', cargo: 'Otro', plural: 'OTROS', color: 'FF64748B', filas: [] }
+  ];
+  R.rows.forEach(function (p) {
+    var c = cargoDe[norm(p.nombre)] || 'Otro';
+    var g = grupos[c === 'Piloto' ? 0 : c === 'Auxiliar' ? 1 : 2];
+    g.filas.push(p);
+  });
+  var activos = grupos.filter(function (g) { return g.filas.length; });
+  var pct = function (a, h) { return h ? a / h : 1; };
+  var colPct = function (v) { return v >= 0.95 ? ['FFDCFCE7', 'FF166534'] : v >= 0.85 ? ['FFFEF3C7', 'FF92400E'] : ['FFFECACA', 'FF991B1B']; };
+  var wb = new EJ.Workbook();
+  wb.creator = 'SERLODINSA'; wb.created = new Date();
+  var periodo = 'Período: ' + fmtFecha(R.desde) + ' al ' + fmtFecha(R.hasta);
+  var ahora = new Date(), gen = 'Generado: ' + fmtFecha(iso(ahora)) + ' ' + pad(ahora.getHours()) + ':' + pad(ahora.getMinutes());
+
+  function titulo(ws, txt, sub, ncols, color) {
+    ws.mergeCells(1, 1, 1, ncols);
+    var c = ws.getCell(1, 1); c.value = txt;
+    c.font = { name: F, size: 18, bold: true, color: { argb: 'FFFFFFFF' } }; c.fill = fill(color || AZUL);
+    c.alignment = { vertical: 'middle', horizontal: 'left', indent: 1 }; ws.getRow(1).height = 34;
+    ws.mergeCells(2, 1, 2, ncols);
+    var s = ws.getCell(2, 1); s.value = sub;
+    s.font = { name: F, size: 10, italic: true, color: { argb: 'FF475569' } }; s.fill = fill(GRIS);
+    s.alignment = { vertical: 'middle', horizontal: 'left', indent: 1 }; ws.getRow(2).height = 20;
+  }
+  function cab(cell, color) {
+    cell.font = { name: F, size: 10, bold: true, color: { argb: 'FFFFFFFF' } }; cell.fill = fill(color || AZUL);
+    cell.alignment = { vertical: 'middle', horizontal: 'center', wrapText: true }; cell.border = borde;
+  }
+  function dato(cell, centro) {
+    cell.font = { name: F, size: 10 }; cell.border = borde;
+    cell.alignment = { vertical: 'middle', horizontal: centro ? 'center' : 'left', wrapText: false };
+  }
+  function pctCell(cell, v) {
+    var cc = colPct(v);
+    cell.numFmt = '0%'; cell.fill = fill(cc[0]); cell.font = { name: F, size: 10, bold: true, color: { argb: cc[1] } };
+    cell.alignment = { vertical: 'middle', horizontal: 'center' }; cell.border = borde;
+  }
+  function tot(g) {
+    var o = { h: 0, a: 0, f: 0, d: 0 };
+    g.filas.forEach(function (p) { o.h += p.habiles; o.a += p.asistio; o.f += p.faltas.length; o.d += p.domingos.length; });
+    return o;
+  }
+
+  /* ---------- RESUMEN ---------- */
+  var ws = wb.addWorksheet('Resumen', { views: [{ showGridLines: false }], properties: { tabColor: { argb: AZUL } } });
+  ws.columns = [{ width: 5 }, { width: 38 }, { width: 13 }, { width: 11 }, { width: 10 }, { width: 14 }, { width: 16 }, { width: 62 }];
+  titulo(ws, 'Reporte de Asistencia · SERLODINSA', periodo + '   ·   ' + gen + '   ·   Lun-Sáb son días hábiles; el domingo trabajado se paga extra', 8);
+  var T = { h: 0, a: 0, f: 0, d: 0 }, n = 0;
+  activos.forEach(function (g) { var t = tot(g); T.h += t.h; T.a += t.a; T.f += t.f; T.d += t.d; n += g.filas.length; });
+  var kp = [['PERSONAL', n, null], ['PILOTOS', grupos[0].filas.length, null], ['AUXILIARES', grupos[1].filas.length, null], ['ASISTENCIA', pct(T.a, T.h), '0%'], ['FALTAS', T.f, null], ['DOMINGOS EXTRA', T.d, null]];
+  var kcols = [[1, 2], [3, 3], [4, 4], [5, 6], [7, 7], [8, 8]];
+  kp.forEach(function (k, i) {
+    var a = kcols[i][0], b = kcols[i][1];
+    if (b > a) { ws.mergeCells(4, a, 4, b); ws.mergeCells(5, a, 5, b); }
+    var l = ws.getCell(4, a); l.value = k[0]; l.font = { name: F, size: 9, bold: true, color: { argb: 'FF64748B' } }; l.alignment = { horizontal: 'center', vertical: 'middle' };
+    var v = ws.getCell(5, a); v.value = k[1]; if (k[2]) v.numFmt = k[2];
+    v.font = { name: F, size: 20, bold: true, color: { argb: i === 4 ? 'FFB91C1C' : AZUL } }; v.alignment = { horizontal: 'center', vertical: 'middle' };
+    for (var c = a; c <= b; c++) { ws.getCell(4, c).fill = fill(GRIS); ws.getCell(5, c).fill = fill(GRIS); }
+  });
+  ws.getRow(4).height = 18; ws.getRow(5).height = 36;
+  var fila = 7;
+  activos.forEach(function (g) {
+    ws.mergeCells(fila, 1, fila, 8);
+    var s = ws.getCell(fila, 1); s.value = g.plural + '  (' + g.filas.length + ')';
+    s.font = { name: F, size: 12, bold: true, color: { argb: 'FFFFFFFF' } }; s.fill = fill(g.color); s.alignment = { vertical: 'middle', indent: 1 };
+    ws.getRow(fila).height = 24; fila++;
+    ['#', 'Nombre', 'Días hábiles', 'Asistió', 'Faltas', '% asistencia', 'Domingos extra', 'Fechas de falta'].forEach(function (h, i) { var c = ws.getCell(fila, i + 1); c.value = h; cab(c, AZUL); });
+    ws.getRow(fila).height = 28; fila++;
+    var ini = fila;
+    g.filas.forEach(function (p, i) {
+      var r = fila;
+      ws.getCell(r, 1).value = i + 1; ws.getCell(r, 2).value = p.nombre; ws.getCell(r, 3).value = p.habiles; ws.getCell(r, 4).value = p.asistio;
+      ws.getCell(r, 5).value = { formula: 'C' + r + '-D' + r, result: p.habiles - p.asistio };
+      ws.getCell(r, 6).value = { formula: 'IF(C' + r + '=0,1,D' + r + '/C' + r + ')', result: pct(p.asistio, p.habiles) };
+      ws.getCell(r, 7).value = p.domingos.length;
+      ws.getCell(r, 8).value = p.faltas.map(function (x) { return x.slice(8) + '/' + x.slice(5, 7); }).join(', ');
+      for (var c = 1; c <= 8; c++) dato(ws.getCell(r, c), c !== 2 && c !== 8);
+      ws.getCell(r, 8).alignment = { vertical: 'middle', wrapText: true };
+      pctCell(ws.getCell(r, 6), pct(p.asistio, p.habiles));
+      if (p.habiles - p.asistio > 0) ws.getCell(r, 5).font = { name: F, size: 10, bold: true, color: { argb: 'FFB91C1C' } };
+      if (i % 2) for (var c2 = 1; c2 <= 8; c2++) if (c2 !== 6) ws.getCell(r, c2).fill = fill('FFF8FAFC');
+      fila++;
+    });
+    var fin = fila - 1, t = tot(g);
+    var tr = fila;
+    ws.getCell(tr, 2).value = 'TOTAL ' + g.plural;
+    ws.getCell(tr, 3).value = { formula: 'SUM(C' + ini + ':C' + fin + ')', result: t.h };
+    ws.getCell(tr, 4).value = { formula: 'SUM(D' + ini + ':D' + fin + ')', result: t.a };
+    ws.getCell(tr, 5).value = { formula: 'SUM(E' + ini + ':E' + fin + ')', result: t.f };
+    ws.getCell(tr, 6).value = { formula: 'IF(C' + tr + '=0,1,D' + tr + '/C' + tr + ')', result: pct(t.a, t.h) };
+    ws.getCell(tr, 7).value = { formula: 'SUM(G' + ini + ':G' + fin + ')', result: t.d };
+    for (var c3 = 1; c3 <= 8; c3++) {
+      var cc = ws.getCell(tr, c3); cc.font = { name: F, size: 10, bold: true }; cc.fill = fill('FFE2E8F0'); cc.border = borde;
+      cc.alignment = { vertical: 'middle', horizontal: c3 === 2 ? 'right' : 'center' };
+    }
+    ws.getCell(tr, 6).numFmt = '0%';
+    ws.getRow(tr).height = 22;
+    fila += 3;
+  });
+  ws.pageSetup = { orientation: 'landscape', fitToPage: true, fitToWidth: 1, fitToHeight: 0, paperSize: 9 };
+
+  /* ---------- HOJAS POR GRUPO (detalle diario) ---------- */
+  activos.forEach(function (g) {
+    var nd = R.dias.length, base = 6, nc = base + nd;
+    var w = wb.addWorksheet(g.hoja, { properties: { tabColor: { argb: g.color } }, views: [{ state: 'frozen', xSplit: 2, ySplit: 5, showGridLines: false }] });
+    var cols = [{ width: 5 }, { width: 36 }, { width: 9 }, { width: 8 }, { width: 11 }, { width: 11 }];
+    for (var i = 0; i < nd; i++) cols.push({ width: 5.3 });
+    w.columns = cols;
+    titulo(w, g.plural + ' · Asistencia diaria', periodo + '   ·   ✔ Asistió   ✘ Falta   ★ Domingo trabajado (pago extra)   · pendiente   – antes del inicio', Math.max(nc, 8), g.color);
+    w.getRow(3).height = 6;
+    ['#', 'Nombre', 'Asistió', 'Faltas', '% asist.', 'Dom. extra'].forEach(function (h, i) { w.mergeCells(4, i + 1, 5, i + 1); var c = w.getCell(4, i + 1); c.value = h; cab(c, AZUL); w.getCell(5, i + 1).border = borde; w.getCell(5, i + 1).fill = fill(AZUL); });
+    R.dias.forEach(function (x, i) {
+      var dw = partes(x).getDay(), col = base + i + 1, dom = dw === 0;
+      var a = w.getCell(4, col); a.value = DIAS_ES[dw]; cab(a, dom ? 'FF475569' : AZUL);
+      var b = w.getCell(5, col); b.value = x.slice(8) + '/' + x.slice(5, 7); cab(b, dom ? 'FF475569' : AZUL); b.font = { name: F, size: 8, bold: true, color: { argb: 'FFFFFFFF' } };
+    });
+    w.getRow(4).height = 18; w.getRow(5).height = 18;
+    var r0 = 6, lastCol = base + nd;
+    var L = function (n) { var s = ''; while (n > 0) { var m = (n - 1) % 26; s = String.fromCharCode(65 + m) + s; n = Math.floor((n - 1) / 26); } return s; };
+    g.filas.forEach(function (p, i) {
+      var r = r0 + i, c1 = L(base + 1), c2 = L(lastCol);
+      w.getCell(r, 1).value = i + 1; w.getCell(r, 2).value = p.nombre;
+      w.getCell(r, 3).value = { formula: 'COUNTIF(' + c1 + r + ':' + c2 + r + ',"✔")', result: p.asistio };
+      w.getCell(r, 4).value = { formula: 'COUNTIF(' + c1 + r + ':' + c2 + r + ',"✘")', result: p.faltas.length };
+      w.getCell(r, 5).value = { formula: 'IF(C' + r + '+D' + r + '=0,1,C' + r + '/(C' + r + '+D' + r + '))', result: pct(p.asistio, p.habiles) };
+      w.getCell(r, 6).value = { formula: 'COUNTIF(' + c1 + r + ':' + c2 + r + ',"★")', result: p.domingos.length };
+      for (var c = 1; c <= 6; c++) dato(w.getCell(r, c), c !== 2);
+      pctCell(w.getCell(r, 5), pct(p.asistio, p.habiles));
+      if (p.faltas.length) w.getCell(r, 4).font = { name: F, size: 10, bold: true, color: { argb: 'FFB91C1C' } };
+      R.dias.forEach(function (x, j) {
+        var e = p.estado[x], dw = partes(x).getDay(), cell = w.getCell(r, base + j + 1), tx = '', bg = null, fc = 'FF94A3B8', bold = false;
+        if (e === 'ASISTIO') { tx = '✔'; bg = 'FFDCFCE7'; fc = 'FF166534'; }
+        else if (e === 'FALTA') { tx = '✘'; bg = 'FFFECACA'; fc = 'FFB91C1C'; bold = true; }
+        else if (e === 'DOMINGO (pago extra)') { tx = '★'; bg = 'FFBFDBFE'; fc = 'FF1E3A8A'; bold = true; }
+        else if (dw === 0) { bg = 'FFE2E8F0'; }
+        else if (e === 'pendiente') { tx = '·'; }
+        else if (e === '-') { tx = '–'; bg = 'FFF8FAFC'; fc = 'FFCBD5E1'; }
+        cell.value = tx; cell.font = { name: F, size: 10, bold: bold, color: { argb: fc } };
+        cell.alignment = { horizontal: 'center', vertical: 'middle' }; cell.border = borde; if (bg) cell.fill = fill(bg);
+      });
+      w.getRow(r).height = 19;
+    });
+    var rt = r0 + g.filas.length, rf = rt - 1, t = tot(g);
+    w.getCell(rt, 2).value = 'PRESENTES POR DÍA';
+    w.getCell(rt, 3).value = { formula: 'SUM(C' + r0 + ':C' + rf + ')', result: t.a };
+    w.getCell(rt, 4).value = { formula: 'SUM(D' + r0 + ':D' + rf + ')', result: t.f };
+    w.getCell(rt, 5).value = { formula: 'IF(C' + rt + '+D' + rt + '=0,1,C' + rt + '/(C' + rt + '+D' + rt + '))', result: pct(t.a, t.h) };
+    w.getCell(rt, 6).value = { formula: 'SUM(F' + r0 + ':F' + rf + ')', result: t.d };
+    R.dias.forEach(function (x, j) {
+      var col = L(base + j + 1), pres = 0;
+      g.filas.forEach(function (p) { if (p.estado[x] === 'ASISTIO' || p.estado[x] === 'DOMINGO (pago extra)') pres++; });
+      w.getCell(rt, base + j + 1).value = { formula: 'COUNTIF(' + col + r0 + ':' + col + rf + ',"✔")+COUNTIF(' + col + r0 + ':' + col + rf + ',"★")', result: pres };
+    });
+    for (var c = 1; c <= lastCol; c++) {
+      var cc = w.getCell(rt, c); cc.font = { name: F, size: 10, bold: true }; cc.fill = fill('FFE2E8F0'); cc.border = borde;
+      cc.alignment = { horizontal: c === 2 ? 'right' : 'center', vertical: 'middle' };
+    }
+    w.getCell(rt, 5).numFmt = '0%'; w.getRow(rt).height = 22;
+    w.pageSetup = { orientation: 'landscape', fitToPage: true, fitToWidth: 1, fitToHeight: 0, paperSize: 9 };
+    w.pageSetup.printTitlesRow = '4:5';
+  });
+
+  /* ---------- REGISTROS ---------- */
+  var wr = wb.addWorksheet('Registros', { properties: { tabColor: { argb: 'FF16A34A' } }, views: [{ state: 'frozen', ySplit: 4, showGridLines: false }] });
+  wr.columns = [{ width: 13 }, { width: 11 }, { width: 38 }, { width: 12 }, { width: 14 }];
+  titulo(wr, 'Registros de marcación', periodo + '   ·   ' + filas.length + ' registros', 5);
+  wr.getRow(3).height = 6;
+  ['Fecha', 'Hora', 'Nombre', 'Cargo', 'Distancia (m)'].forEach(function (h, i) { var c = wr.getCell(4, i + 1); c.value = h; cab(c, AZUL); });
+  wr.getRow(4).height = 22;
+  filas.forEach(function (r, i) {
+    var ro = 5 + i, cg = cargoDe[norm(r[2])] || 'Otro', d = Number(r[3]);
+    var f = r[0].split('-');
+    wr.getCell(ro, 1).value = new Date(Date.UTC(+f[0], +f[1] - 1, +f[2])); wr.getCell(ro, 1).numFmt = 'dd/mm/yyyy';
+    wr.getCell(ro, 2).value = String(r[1]); wr.getCell(ro, 3).value = String(r[2]); wr.getCell(ro, 4).value = cg;
+    wr.getCell(ro, 5).value = isNaN(d) ? String(r[3]) : d;
+    for (var c = 1; c <= 5; c++) { dato(wr.getCell(ro, c), c !== 3); if (i % 2) wr.getCell(ro, c).fill = fill('FFF8FAFC'); }
+    var cgc = wr.getCell(ro, 4); cgc.font = { name: F, size: 10, bold: true, color: { argb: cg === 'Piloto' ? 'FF1D4ED8' : cg === 'Auxiliar' ? 'FF0E7490' : 'FF475569' } };
+  });
+  wr.autoFilter = { from: { row: 4, column: 1 }, to: { row: 4 + Math.max(filas.length, 1), column: 5 } };
+  wr.pageSetup = { orientation: 'portrait', fitToPage: true, fitToWidth: 1, fitToHeight: 0, paperSize: 9 };
+  return wb;
+}
+function excelAsistencia(btn) {
+  var txt = btn ? btn.textContent : '';
+  var fin = function (msg) { if (btn) { btn.disabled = false; btn.textContent = txt; } if (msg) alert(msg); };
+  if (btn) { btn.disabled = true; btn.textContent = 'Generando...'; }
+  var go = function () {
+    try {
+      var R = reporte(), wb = xlsxBuild(window.ExcelJS, R, PERSONAL, filtrado);
+      wb.xlsx.writeBuffer().then(function (buf) {
+        var a = document.createElement('a');
+        a.href = URL.createObjectURL(new Blob([buf], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }));
+        a.download = 'asistencia_' + R.desde + '_a_' + R.hasta + '.xlsx';
+        document.body.appendChild(a); a.click(); a.remove(); fin();
+      }).catch(function (e) { fin('No se pudo crear el Excel: ' + e.message); });
+    } catch (e) { fin('No se pudo crear el Excel: ' + e.message); }
+  };
+  if (window.ExcelJS) { go(); return; }
+  var s = document.createElement('script'); s.src = EXJS_URL; s.onload = go;
+  s.onerror = function () { fin('No se pudo cargar el generador de Excel. Revisa tu conexión e intenta de nuevo.'); };
+  document.head.appendChild(s);
+}
+
 function reporteCsv(){
   var R=reporte();
   var q=function(v){return '"'+String(v).replace(/"/g,'""')+'"'};
