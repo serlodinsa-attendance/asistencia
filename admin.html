@@ -141,7 +141,7 @@ function personalUI() {
 }
 function pintarPersonal() {
   var h = '<b>Personal (' + PERSONAL.length + ')</b><p class="muted" style="margin:4px 0 8px">Esta lista es la que aparece en la página de marcar asistencia. Los registros anteriores de una persona eliminada se conservan.</p>';
-  h += '<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:8px"><input id="pN" placeholder="Nombre completo" style="min-width:260px"><select id="pC" style="padding:9px;border:1.5px solid #cbd5e1;border-radius:8px"><option>Piloto</option><option>Auxiliar</option><option>Otro</option></select><button onclick="personalAdd()">+ Agregar persona</button><span id="pMsg" style="font-size:13px;color:#b91c1c"></span></div>';
+  h += '<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:8px"><input id="pN" placeholder="Nombre completo" style="min-width:260px"><select id="pC" style="padding:9px;border:1.5px solid #cbd5e1;border-radius:8px"><option value="Piloto">Piloto</option><option value="Auxiliar">Auxiliar (ayudante)</option><option value="Otro">Otro</option></select><button onclick="personalAdd()">+ Agregar persona</button><button style="background:#15803d" onclick="excelPersonal(this)">📊 Descargar listado</button><span id="pMsg" style="font-size:13px;color:#b91c1c"></span></div>';
   h += '<input id="pQ" placeholder="Buscar en la lista..." oninput="pintarPersonalTabla()" style="margin-bottom:8px;min-width:260px"><div class="wrap" style="max-height:40vh"><table id="pT"></table></div>';
   $('personal').innerHTML = h; pintarPersonalTabla();
 }
@@ -484,6 +484,56 @@ function excelAsistencia(btn) {
   document.head.appendChild(s);
 }
 
+function excelPersonal(btn) {
+  var txt = btn ? btn.textContent : '';
+  var fin = function (msg) { if (btn) { btn.disabled = false; btn.textContent = txt; } if (msg) alert(msg); };
+  if (btn) { btn.disabled = true; btn.textContent = 'Generando...'; }
+  var go = function () {
+    try {
+      var EJ = window.ExcelJS, orden = { Piloto: 0, Auxiliar: 1 };
+      var lista = PERSONAL.slice().sort(function (a, b) {
+        var x = orden[a.c] === undefined ? 2 : orden[a.c], y = orden[b.c] === undefined ? 2 : orden[b.c];
+        return x - y || a.n.localeCompare(b.n, 'es');
+      });
+      var np = lista.filter(function (p) { return p.c === 'Piloto'; }).length, na = lista.filter(function (p) { return p.c === 'Auxiliar'; }).length;
+      var wb = new EJ.Workbook(); wb.creator = 'SERLODINSA';
+      var w = wb.addWorksheet('Personal', { views: [{ state: 'frozen', ySplit: 4, showGridLines: false }], properties: { tabColor: { argb: 'FF0891B2' } } });
+      w.columns = [{ width: 6 }, { width: 46 }, { width: 16 }];
+      var fill = function (c) { return { type: 'pattern', pattern: 'solid', fgColor: { argb: c } }; };
+      var bd = { top: { style: 'thin', color: { argb: 'FFCBD5E1' } }, left: { style: 'thin', color: { argb: 'FFCBD5E1' } }, bottom: { style: 'thin', color: { argb: 'FFCBD5E1' } }, right: { style: 'thin', color: { argb: 'FFCBD5E1' } } };
+      var hoy = new Date();
+      w.mergeCells(1, 1, 1, 3); var t = w.getCell(1, 1); t.value = 'Listado de Personal · SERLODINSA';
+      t.font = { name: 'Calibri', size: 16, bold: true, color: { argb: 'FFFFFFFF' } }; t.fill = fill('FF0F172A'); t.alignment = { vertical: 'middle', indent: 1 }; w.getRow(1).height = 32;
+      w.mergeCells(2, 1, 2, 3); var s = w.getCell(2, 1);
+      s.value = lista.length + ' personas  ·  ' + np + ' pilotos  ·  ' + na + ' auxiliares' + (lista.length - np - na ? '  ·  ' + (lista.length - np - na) + ' otros' : '') + '  ·  Actualizado: ' + fmtFecha(iso(hoy));
+      s.font = { name: 'Calibri', size: 10, italic: true, color: { argb: 'FF475569' } }; s.fill = fill('FFF1F5F9'); s.alignment = { vertical: 'middle', indent: 1 }; w.getRow(2).height = 20;
+      w.getRow(3).height = 6;
+      ['#', 'Nombre', 'Cargo'].forEach(function (h, i) { var c = w.getCell(4, i + 1); c.value = h; c.font = { name: 'Calibri', size: 11, bold: true, color: { argb: 'FFFFFFFF' } }; c.fill = fill('FF0F172A'); c.alignment = { horizontal: 'center', vertical: 'middle' }; c.border = bd; });
+      w.getRow(4).height = 22;
+      lista.forEach(function (p, i) {
+        var r = 5 + i, cg = p.c || 'Otro';
+        w.getCell(r, 1).value = i + 1; w.getCell(r, 2).value = p.n; w.getCell(r, 3).value = cg;
+        for (var c = 1; c <= 3; c++) { var k = w.getCell(r, c); k.font = { name: 'Calibri', size: 11 }; k.border = bd; k.alignment = { vertical: 'middle', horizontal: c === 2 ? 'left' : 'center' }; if (i % 2) k.fill = fill('FFF8FAFC'); }
+        var kc = w.getCell(r, 3), pil = cg === 'Piloto', aux = cg === 'Auxiliar';
+        kc.fill = fill(pil ? 'FFDBEAFE' : aux ? 'FFCFFAFE' : 'FFE2E8F0');
+        kc.font = { name: 'Calibri', size: 11, bold: true, color: { argb: pil ? 'FF1D4ED8' : aux ? 'FF0E7490' : 'FF475569' } };
+        w.getRow(r).height = 20;
+      });
+      w.autoFilter = { from: { row: 4, column: 1 }, to: { row: 4 + Math.max(lista.length, 1), column: 3 } };
+      w.pageSetup = { orientation: 'portrait', fitToPage: true, fitToWidth: 1, fitToHeight: 0, paperSize: 9, printTitlesRow: '4:4' };
+      wb.xlsx.writeBuffer().then(function (buf) {
+        var a = document.createElement('a');
+        a.href = URL.createObjectURL(new Blob([buf], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }));
+        a.download = 'personal_SERLODINSA_' + iso(hoy) + '.xlsx';
+        document.body.appendChild(a); a.click(); a.remove(); fin();
+      }).catch(function (e) { fin('No se pudo crear el Excel: ' + e.message); });
+    } catch (e) { fin('No se pudo crear el Excel: ' + e.message); }
+  };
+  if (window.ExcelJS) { go(); return; }
+  var sc = document.createElement('script'); sc.src = EXJS_URL; sc.onload = go;
+  sc.onerror = function () { fin('No se pudo cargar el generador de Excel. Revisa tu conexión e intenta de nuevo.'); };
+  document.head.appendChild(sc);
+}
 function reporteCsv(){
   var R=reporte();
   var q=function(v){return '"'+String(v).replace(/"/g,'""')+'"'};
