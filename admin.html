@@ -127,10 +127,10 @@ function pintar(){ if(!$('desde').value||$('desde').value<INICIO) $('desde').val
   Object.keys(gp).forEach(function(k){ var ns=Object.keys(gp[k]); if(ns.length>1){ dup[k]=1; ah+='<div>⚠ '+k.split('|')[0]+': un mismo celular marcó para '+ns.map(function(n){return esc(gp[k][n])}).join(', ')+'</div>'; } });
   $('alertas').innerHTML = ah ? '<div style="background:#fee2e2;color:#991b1b;border-radius:12px;padding:10px 14px;margin:12px 0;font-size:14px"><b>Alertas de posible suplantación</b>'+ah+'</div>' : '';
   var ds='<tr><th>Fecha</th><th>Hora</th><th>Nombre</th><th>Dist. (m)</th><th>Dispositivo</th><th></th></tr>';
-  filtrado.forEach(function(r){ds+='<tr><td>'+r[0]+'</td><td'+(tardia(r[1])?' style="background:#fee2e2;color:#b91c1c;font-weight:700" title="Marcó después de las 9:00 a. m."':'')+'>'+(tardia(r[1])?'⚠ ':'')+r[1]+'</td><td'+(dup[r[0]+'|'+r[5]]?' style="background:#fee2e2" title="Mismo celular marcó para varias personas"':'')+'>'+(dup[r[0]+'|'+r[5]]?'⚠ ':'')+esc(r[2])+'</td><td>'+r[3]+'</td><td style="font-family:monospace">'+(r[5]?esc(String(r[5]).slice(0,6)):'—')+'</td><td style="white-space:nowrap"><button class="sec" onclick="abrir('+r[4]+')">Editar</button> <button style="background:#dc2626" onclick="borrar('+r[4]+')">Borrar</button></td></tr>'});
+  filtrado.forEach(function(r){ds+='<tr><td>'+r[0]+'</td><td'+(tardia(r)?' style="background:#fee2e2;color:#b91c1c;font-weight:700" title="Marcó después de las 9:00 a. m."':'')+'>'+(tardia(r)?'⚠ ':'')+r[1]+'</td><td'+(dup[r[0]+'|'+r[5]]?' style="background:#fee2e2" title="Mismo celular marcó para varias personas"':'')+'>'+(dup[r[0]+'|'+r[5]]?'⚠ ':'')+esc(r[2])+'</td><td>'+r[3]+'</td><td style="font-family:monospace">'+(r[5]?esc(String(r[5]).slice(0,6)):'—')+'</td><td style="white-space:nowrap"><button class="sec" onclick="abrir('+r[4]+')">Editar</button> <button style="background:#dc2626" onclick="borrar('+r[4]+')">Borrar</button></td></tr>'});
   $('detalle').innerHTML=ds; renderReporte();
 }
-function tardia(h){var p=String(h).split(':');return (+p[0])*3600+(+p[1]||0)*60+(+p[2]||0)>32400}
+function tardia(r){if(String(r[3]).toLowerCase()==='manual')return false;var p=String(r[1]).split(':');return (+p[0])*3600+(+p[1]||0)*60+(+p[2]||0)>32400}
 function norm(s){return String(s).normalize('NFD').replace(/[̀-ͯ]/g,'').toLowerCase().replace(/\s+/g,' ').trim()}
 function partes(s){var p=s.split('-');return new Date(+p[0],+p[1]-1,+p[2])}
 var PERSONAL = [];
@@ -458,7 +458,7 @@ function xlsxBuild(EJ, R, PERS, filas) {
     wr.getCell(ro, 2).value = String(r[1]); wr.getCell(ro, 3).value = String(r[2]); wr.getCell(ro, 4).value = cg;
     wr.getCell(ro, 5).value = isNaN(d) ? String(r[3]) : d;
     for (var c = 1; c <= 5; c++) { dato(wr.getCell(ro, c), c !== 3); if (i % 2) wr.getCell(ro, c).fill = fill('FFF8FAFC'); }
-    if (tardia(r[1])) { var hc = wr.getCell(ro, 2); hc.fill = fill('FFFECACA'); hc.font = { name: F, size: 10, bold: true, color: { argb: 'FFB91C1C' } }; }
+    if (tardia(r)) { var hc = wr.getCell(ro, 2); hc.fill = fill('FFFECACA'); hc.font = { name: F, size: 10, bold: true, color: { argb: 'FFB91C1C' } }; }
     var cgc = wr.getCell(ro, 4); cgc.font = { name: F, size: 10, bold: true, color: { argb: cg === 'Piloto' ? 'FF1D4ED8' : cg === 'Auxiliar' ? 'FF0E7490' : 'FF475569' } };
   });
   wr.autoFilter = { from: { row: 4, column: 1 }, to: { row: 4 + Math.max(filas.length, 1), column: 5 } };
